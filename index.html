@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>小醋包的工作台</title>
+<link rel="apple-touch-icon" id="appTouchIcon" href="icon.png">
+<link rel="icon" type="image/png" id="appFavIcon" href="icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#7c6a99">
+<meta name="apple-mobile-web-app-title" content="小醋包的工作台">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
 <style>
 :root{
   --bg-outer:#a396b1; --cream:#f8f3e9; --cream-2:#f1e9db;
@@ -276,6 +284,11 @@ a{color:var(--primary-deep)}
 .modal-box h3{font-size:17px;color:var(--primary-deep);margin-bottom:10px;letter-spacing:2px}
 .modal-box p{font-size:14px;color:var(--text);line-height:1.6;margin-bottom:18px}
 .modal-foot{display:flex;gap:10px;justify-content:flex-end}
+/* 桌面图标弹窗 */
+.appicon-top{display:flex;gap:16px;align-items:flex-start;margin-bottom:14px}
+.appicon-top img{width:96px;height:96px;border-radius:22px;flex:0 0 96px;object-fit:cover;background:#fff;border:1px solid var(--panel-line);box-shadow:0 6px 16px rgba(60,50,80,.14)}
+.appicon-top .appicon-hint{font-size:12px;color:var(--text);line-height:1.7;flex:1}
+.appicon-ok{background:#f0f7ee;border:1px solid #cfe0cb;color:var(--green);border-radius:12px;padding:8px 12px;font-size:12px;line-height:1.7;margin-bottom:12px;display:none}
 .img-box{max-width:min(88vw,760px);max-height:88vh}
 .img-box img{max-width:100%;max-height:80vh;border-radius:18px;display:block}
 .btn-danger{background:var(--red);border:none;color:#fff;border-radius:14px;min-height:44px;padding:8px 22px;font-size:14px}
@@ -295,7 +308,7 @@ a{color:var(--primary-deep)}
 .allmod-item svg{width:18px;height:18px;flex:none;color:#9d8cb8}
 .allmod-item.on{background:var(--primary-deep);color:#fdf9ee;border-color:var(--primary-deep)}
 .allmod-item.on svg{filter:brightness(0) invert(1)}
-.allmod-tools{border-top:1px solid var(--panel-line);padding-top:14px;margin-top:4px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.allmod-tools{border-top:1px solid var(--panel-line);padding-top:14px;margin-top:4px;display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
 .allmod-tool{min-height:48px;border:1px solid var(--panel-line);background:#fff;border-radius:14px;font-size:12px;color:var(--primary-deep);padding:6px 4px}
 .allmod-tip{font-size:12px;color:var(--muted);margin-top:12px;line-height:1.6}
 
@@ -444,6 +457,7 @@ a{color:var(--primary-deep)}
       <button class="allmod-tool" data-tool="export">导出 JSON 备份</button>
       <button class="allmod-tool" data-tool="import">导入恢复</button>
       <button class="allmod-tool" data-tool="clear">清空示例数据</button>
+      <button class="allmod-tool" data-tool="appicon">自定义桌面图标</button>
     </div>
     <div class="allmod-tip">进入模块后，页面上方的胶囊按钮可切换该组下的其他子页面。</div>
   </div>
@@ -494,6 +508,23 @@ a{color:var(--primary-deep)}
     </div>
   </div>
 </div>
+<div class="modal-mask hidden" id="appIconModal">
+  <div class="modal-box">
+    <h3>自定义桌面图标</h3>
+    <div class="appicon-top">
+      <img id="appIconPreview" src="icon.png" alt="图标预览">
+      <div class="appicon-hint" id="appIconHint">选一张喜欢的图（建议方形），保存后会替换到你的线上空间。之后<b>删掉桌面旧图标、重新「添加到主屏幕」</b>就会变成新图标；刚换完若没变，等几分钟再重加一次。注意：图片存在公开空间，别用带个人隐私的照片。</div>
+    </div>
+    <div class="appicon-ok" id="appIconOk"></div>
+    <div class="modal-foot" style="flex-wrap:wrap">
+      <button class="btn-ghost" id="appIconPick">选择图片</button>
+      <button class="btn-primary" id="appIconSave" style="display:none">保存并上传</button>
+      <button class="btn-ghost" id="appIconReset">恢复默认</button>
+      <button class="btn-ghost" id="appIconClose">关闭</button>
+    </div>
+  </div>
+</div>
+<input type="file" id="appIconFile" accept="image/*" class="hidden">
 <div id="toast"></div>
 <input type="file" id="importFile" accept=".json,application/json" class="hidden">
 
@@ -871,7 +902,7 @@ function uid(){ return "r" + Date.now().toString(36) + Math.random().toString(36
    数据文件：edu-workbench-data 仓库的 data.json（整库快照 + updated_at）
    令牌只存本机浏览器 localStorage，不写进页面代码；附件大文件仍在 IndexedDB，不参与同步 */
 var SYNC_OWNER = "liaoziyan-1994", SYNC_REPO = "edu-workbench-data", SYNC_BRANCH = "main";
-var SYNC_EXCLUDE = ["syncCfg", "syncState", "cloudRollback"];
+var SYNC_EXCLUDE = ["syncCfg", "syncState", "cloudRollback", "appIcon"];
 var syncBusy = false, syncTimer = null, syncConflict = null;
 
 function syncCfgGet(){ try{ return JSON.parse(localStorage.getItem(PREFIX + "syncCfg")) || null; }catch(e){ return null; } }
@@ -1116,6 +1147,135 @@ function syncBoot(){
   var cfg = syncCfgGet();
   if(cfg && cfg.token){ setSyncDot("busy", "同步中…"); syncPull(true); }
   else setSyncDot("off", "云同步 · 未启用");
+}
+
+/* ---- 自定义桌面图标（apple-touch-icon / PWA icon，存公开仓库 icon.png） ----
+   注意：图标数据不进云同步（SYNC_EXCLUDE 已排除 appIcon）；
+   真身是线上仓库的静态文件 icon.png，所有设备「添加到主屏幕」读的都是它；
+   localStorage 里的 base64 只做本页预览/浏览器标签图标。 ---- */
+var ICON_REPO = "edu-workbench";
+var pendingIcon = null;   /* 待保存的 dataURL */
+var iconBusy = false;
+function appIconLocalGet(){
+  try{ return localStorage.getItem(PREFIX + "appIcon") || null; }catch(e){ return null; }
+}
+function appIconLocalSet(v){
+  try{ if(v) localStorage.setItem(PREFIX + "appIcon", v); else localStorage.removeItem(PREFIX + "appIcon"); }catch(e){}
+}
+function applyAppIconLocal(){
+  var v = appIconLocalGet();
+  /* 关键：apple-touch-icon 保持静态 URL（iOS 不认 base64 内联图标），
+     只把浏览器标签页的 favicon 换成本地预览图做即时反馈 */
+  var fav = document.getElementById("appFavIcon");
+  if(fav && v) fav.href = v;
+}
+function openAppIconModal(){
+  pendingIcon = null;
+  var local = appIconLocalGet();
+  var pv = document.getElementById("appIconPreview");
+  pv.src = local || ("icon.png?v=" + Date.now());   /* 带时间戳破本机缓存 */
+  document.getElementById("appIconSave").style.display = "none";
+  var ok = document.getElementById("appIconOk");
+  ok.style.display = "none";
+  var hint = document.getElementById("appIconHint");
+  hint.innerHTML = '选一张喜欢的图（建议方形），保存后会替换到你的线上空间。之后<b>删掉桌面旧图标、重新「添加到主屏幕」</b>就会变成新图标；刚换完若没变，等几分钟再重加一次。注意：图片存在公开空间，别用带个人隐私的照片。';
+  document.getElementById("appIconModal").classList.remove("hidden");
+}
+function closeAppIconModal(){
+  document.getElementById("appIconModal").classList.add("hidden");
+}
+function pickAppIcon(file){
+  if(!file) return;
+  if(!/^image\//.test(file.type)){ toast("请选择图片文件"); return; }
+  var rd = new FileReader();
+  rd.onload = function(){
+    var img = new Image();
+    img.onload = function(){
+      /* 512×512 居中裁切铺满，先铺白底保证不透明（iOS 透明区会变黑） */
+      var S = 512;
+      var c = document.createElement("canvas");
+      c.width = S; c.height = S;
+      var x = c.getContext("2d");
+      x.fillStyle = "#ffffff";
+      x.fillRect(0, 0, S, S);
+      var w = img.width, h = img.height;
+      var s = Math.max(S / w, S / h);
+      var dw = Math.round(w * s), dh = Math.round(h * s);
+      x.drawImage(img, Math.round((S - dw) / 2), Math.round((S - dh) / 2), dw, dh);
+      pendingIcon = c.toDataURL("image/png");
+      document.getElementById("appIconPreview").src = pendingIcon;
+      document.getElementById("appIconSave").style.display = "";
+      document.getElementById("appIconOk").style.display = "none";
+      document.getElementById("appIconHint").innerHTML = '图片已就绪，点「保存并上传」后生效。';
+    };
+    img.onerror = function(){ toast("图片读取失败，换一张试试"); };
+    img.src = rd.result;
+  };
+  rd.readAsDataURL(file);
+}
+function saveAppIcon(){
+  if(iconBusy) return;
+  if(!pendingIcon){ toast("请先选择图片"); return; }
+  var cfg = syncCfgGet();
+  if(!cfg || !cfg.token){ toast("需要先在「云同步设置」里保存令牌，才能上传图标"); return; }
+  iconBusy = true;
+  var btn = document.getElementById("appIconSave");
+  btn.disabled = true; btn.textContent = "上传中…";
+  /* 图标 dataURL → base64 内容 */
+  var raw = pendingIcon.split(",")[1];
+  gh("GET", "/repos/" + SYNC_OWNER + "/" + ICON_REPO + "/contents/icon.png").then(function(r){
+    var sha = (r.status === 200 && r.json && r.json.sha) ? r.json.sha : undefined;
+    return gh("PUT", "/repos/" + SYNC_OWNER + "/" + ICON_REPO + "/contents/icon.png",
+      { message: "custom icon " + new Date().toISOString(), content: raw, sha: sha });
+  }).then(function(pr){
+    iconBusy = false;
+    btn.disabled = false; btn.textContent = "保存并上传";
+    if(pr.status !== 200 && pr.status !== 201){
+      toast("上传失败（" + pr.status + "），检查网络后重试");
+      return;
+    }
+    appIconLocalSet(pendingIcon);
+    applyAppIconLocal();
+    var ok = document.getElementById("appIconOk");
+    ok.style.display = "block";
+    ok.textContent = "✅ 已上传！去手机桌面：长按删掉旧图标 → 打开链接重新「添加到主屏幕」。若图标没变，等几分钟再重加一次。";
+    document.getElementById("appIconSave").style.display = "none";
+    pendingIcon = null;
+  }).catch(function(e){
+    iconBusy = false;
+    btn.disabled = false; btn.textContent = "保存并上传";
+    toast("上传失败：" + (e && e.message ? e.message : "网络问题"));
+  });
+}
+function resetAppIcon(){
+  if(iconBusy) return;
+  var cfg = syncCfgGet();
+  if(!cfg || !cfg.token){ toast("需要先配置云同步令牌才能恢复默认"); return; }
+  iconBusy = true;
+  gh("GET", "/repos/" + SYNC_OWNER + "/" + ICON_REPO + "/contents/icon-default.png").then(function(r){
+    if(r.status !== 200 || !r.json || !r.json.content) throw new Error("default:" + r.status);
+    var raw = String(r.json.content).replace(/\s/g, "");
+    return gh("GET", "/repos/" + SYNC_OWNER + "/" + ICON_REPO + "/contents/icon.png").then(function(r2){
+      var sha = (r2.status === 200 && r2.json && r2.json.sha) ? r2.json.sha : undefined;
+      return gh("PUT", "/repos/" + SYNC_OWNER + "/" + ICON_REPO + "/contents/icon.png",
+        { message: "reset icon to default", content: raw, sha: sha });
+    });
+  }).then(function(pr){
+    iconBusy = false;
+    if(pr.status !== 200 && pr.status !== 201){
+      toast("恢复失败（" + pr.status + "）"); return;
+    }
+    appIconLocalSet(null);
+    document.getElementById("appIconPreview").src = "icon.png?v=" + Date.now();
+    ["appTouchIcon", "appFavIcon"].forEach(function(id){
+      var el = document.getElementById(id);
+      if(el) el.href = "icon.png?v=" + Date.now();
+    });
+    toast("已恢复默认图标，重新添加到主屏幕即可生效");
+  }).catch(function(e){
+    iconBusy = false;
+    toast("恢复失败：" + (e && e.message ? e.message : "网络问题"));
+  });
 }
 
 /* ---- 文件存储层（IndexedDB，培训文件专用；localStorage 太小放不下文件） ---- */
@@ -2552,7 +2712,24 @@ document.getElementById("allModMask").addEventListener("click", function(e){
     if(t === "export") document.getElementById("btnExport").click();
     else if(t === "import") document.getElementById("btnImport").click();
     else if(t === "clear") document.getElementById("btnClearSample").click();
+    else if(t === "appicon") openAppIconModal();
   }
+});
+
+/* 桌面图标弹窗交互 */
+document.getElementById("appIconPick").addEventListener("click", function(){
+  document.getElementById("appIconFile").click();
+});
+document.getElementById("appIconFile").addEventListener("change", function(e){
+  var f = e.target.files && e.target.files[0];
+  pickAppIcon(f);
+  e.target.value = "";   /* 允许连续选同一张图 */
+});
+document.getElementById("appIconSave").addEventListener("click", saveAppIcon);
+document.getElementById("appIconReset").addEventListener("click", resetAppIcon);
+document.getElementById("appIconClose").addEventListener("click", closeAppIconModal);
+document.getElementById("appIconModal").addEventListener("click", function(e){
+  if(e.target === this) closeAppIconModal();
 });
 
 /* 工具按钮 */
@@ -2792,6 +2969,7 @@ function init(){
   }
   buildNav();
   refreshAll();
+  applyAppIconLocal();
   syncBoot();
 }
 init();
