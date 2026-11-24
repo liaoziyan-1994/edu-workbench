@@ -253,6 +253,23 @@ a{color:var(--primary-deep)}
 .refund-mini{font-size:13px;color:var(--muted);margin-top:8px}
 .refund-mini b{color:var(--red)}
 
+/* ---------- 云同步 ---------- */
+.topbar-right{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.sync-chip{display:flex;align-items:center;gap:7px;background:#fff;border:1px solid var(--panel-line);border-radius:16px;min-height:36px;padding:6px 12px;font-size:12px;color:var(--primary-deep);cursor:pointer}
+.sync-chip .dot{width:9px;height:9px;border-radius:50%;background:#c9badb;flex:none}
+.sync-chip .dot.ok{background:#7ba86f}
+.sync-chip .dot.busy{background:#d9a441}
+.sync-chip .dot.err{background:var(--red)}
+.sync-modal{max-width:430px}
+.sync-modal input{width:100%;box-sizing:border-box;border:1px solid var(--panel-line);border-radius:12px;min-height:44px;padding:10px 12px;font-size:16px;font-family:ui-monospace,Menlo,monospace}
+.sync-modal .sync-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+.sync-modal .sync-row>*{flex:1;min-width:130px}
+.sync-modal .sync-btn{min-height:44px;border:1px solid var(--panel-line);background:#fff;border-radius:12px;font-size:13px;color:var(--primary-deep)}
+.sync-modal .sync-btn.danger{color:var(--red)}
+.sync-modal .sync-hint{font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:10px}
+.sync-pick{border:1px solid var(--panel-line);background:#fff;border-radius:12px;min-height:40px;padding:6px 14px;font-size:13px;color:var(--primary-deep);margin:0 6px 0 6px;cursor:pointer}
+.sync-pick.ghost{background:transparent}
+
 /* ---------- 弹窗 / toast ---------- */
 .modal-mask{position:fixed;inset:0;background:rgba(58,48,80,.38);display:flex;align-items:center;justify-content:center;z-index:60;padding:20px}
 .modal-box{background:var(--cream);border-radius:26px;padding:24px;max-width:360px;width:100%;box-shadow:0 16px 44px rgba(0,0,0,.22)}
@@ -338,14 +355,18 @@ a{color:var(--primary-deep)}
           <p class="sub">数据保存在本机浏览器 · 支持导出备份 · 学员数量不限</p>
         </div>
       </div>
-      <div class="datebox">
-        <div class="d1" id="dateMain">--</div>
-        <div class="d2" id="dateSub">--</div>
+      <div class="topbar-right">
+        <button class="sync-chip" id="btnSync" type="button"><span class="dot off" id="syncDot"></span><span id="syncTxt">云同步 · 未启用</span></button>
+        <div class="datebox">
+          <div class="d1" id="dateMain">--</div>
+          <div class="d2" id="dateSub">--</div>
+        </div>
       </div>
     </header>
 
     <div class="banner hidden" id="storageWarn">当前环境不允许本地存储（常见于内嵌预览小窗），数据无法保存。请把链接复制到浏览器新标签页直接打开使用。</div>
     <div class="banner hidden" id="banner30"></div>
+    <div class="banner hidden" id="syncBanner"></div>
 
     <div id="specialWrap"></div>
 
@@ -415,6 +436,25 @@ a{color:var(--primary-deep)}
     <div class="modal-foot" style="margin-top:12px">
       <button class="btn-ghost" id="fileModalClose">关闭</button>
       <button class="btn-primary" id="fileModalDl">下载此文件</button>
+    </div>
+  </div>
+</div>
+<div class="modal-mask hidden" id="syncModal">
+  <div class="modal-box sync-modal">
+    <h3>云同步设置</h3>
+    <div class="sync-hint" id="syncHint"></div>
+    <input id="syncTokenInput" type="password" autocomplete="off" placeholder="粘贴 GitHub 细粒度令牌（github_pat_ 开头）">
+    <div class="sync-row">
+      <button class="sync-btn" id="syncSaveToken">保存令牌</button>
+      <button class="sync-btn" id="syncPushNow">立即上传</button>
+    </div>
+    <div class="sync-row">
+      <button class="sync-btn" id="syncPullNow">立即下载</button>
+      <button class="sync-btn" id="syncRollback" style="display:none">恢复覆盖前备份</button>
+    </div>
+    <div class="sync-row">
+      <button class="sync-btn danger" id="syncClearToken">清除令牌</button>
+      <button class="btn-ghost" id="syncClose">关闭</button>
     </div>
   </div>
 </div>
@@ -782,12 +822,265 @@ function loadObj(key, dft){
 function saveDS(key){
   try{ localStorage.setItem(PREFIX + key, JSON.stringify(data[key])); }
   catch(e){ toast("保存失败：浏览器存储空间可能已满（照片太多会占空间），建议删掉一些照片并导出备份"); }
+  syncSchedulePush();
 }
 function saveObj(key, obj){
   try{ localStorage.setItem(PREFIX + key, JSON.stringify(obj)); }
   catch(e){ toast("保存失败：浏览器存储空间不足"); }
+  syncSchedulePush();
 }
 function uid(){ return "r" + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+/* ================= 云同步（GitHub 私有仓库，手机/电脑数据互通） =================
+   数据文件：edu-workbench-data 仓库的 data.json（整库快照 + updated_at）
+   令牌只存本机浏览器 localStorage，不写进页面代码；附件大文件仍在 IndexedDB，不参与同步 */
+var SYNC_OWNER = "liaoziyan-1994", SYNC_REPO = "edu-workbench-data", SYNC_BRANCH = "main";
+var SYNC_EXCLUDE = ["syncCfg", "syncState", "cloudRollback"];
+var syncBusy = false, syncTimer = null, syncConflict = null;
+
+function syncCfgGet(){ try{ return JSON.parse(localStorage.getItem(PREFIX + "syncCfg")) || null; }catch(e){ return null; } }
+function syncCfgSet(cfg){ try{ if(cfg) localStorage.setItem(PREFIX + "syncCfg", JSON.stringify(cfg)); else localStorage.removeItem(PREFIX + "syncCfg"); }catch(e){} }
+function syncStGet(){ try{ return JSON.parse(localStorage.getItem(PREFIX + "syncState")) || {}; }catch(e){ return {}; } }
+function syncStSet(st){ try{ localStorage.setItem(PREFIX + "syncState", JSON.stringify(st)); }catch(e){} }
+
+function collectSyncData(){
+  var out = {};
+  try{
+    for(var i = 0; i < localStorage.length; i++){
+      var k = localStorage.key(i);
+      if(k.indexOf(PREFIX) !== 0) continue;
+      if(SYNC_EXCLUDE.indexOf(k.slice(PREFIX.length)) !== -1) continue;
+      try{ out[k] = JSON.parse(localStorage.getItem(k)); }catch(e){}
+    }
+  }catch(e){}
+  return out;
+}
+function applySyncData(remoteData, remoteAt){
+  try{
+    var backup = { at: Date.now(), data: collectSyncData() };
+    localStorage.setItem(PREFIX + "cloudRollback", JSON.stringify(backup));
+  }catch(e){ toast("覆盖前备份失败，已中止（云端数据未应用）"); return false; }
+  var n = 0;
+  Object.keys(remoteData || {}).forEach(function(k){
+    try{ localStorage.setItem(k, JSON.stringify(remoteData[k])); n++; }catch(e){}
+  });
+  var st = syncStGet(); st.dirty = false; st.lastSyncedAt = remoteAt || Date.now(); syncStSet(st);
+  /* 关键：同步刷新内存数据层，否则后续编辑会拿旧内存数据反向覆盖 localStorage 和云端 */
+  Object.keys(DATASETS).forEach(function(k){ data[k] = loadDS(k); });
+  data.todo = loadDS("todo");
+  data.memo = loadDS("memo");
+  return true;
+}
+function u8b64(s){ return btoa(unescape(encodeURIComponent(s))); }
+function b64u8(b){ return decodeURIComponent(escape(atob(String(b).replace(/\s/g, "")))); }
+function fmtTs(ts){ var d = new Date(ts); function p(n){ return (n < 10 ? "0" : "") + n; } return (d.getMonth() + 1) + "月" + d.getDate() + "日 " + p(d.getHours()) + ":" + p(d.getMinutes()); }
+
+function gh(method, path, body, token){
+  var cfg = syncCfgGet();
+  /* 加时间戳参数绕过浏览器 HTTP 缓存（GitHub API 响应带 max-age=60，会导致拉到旧数据） */
+  var url = "https://api.github.com" + path + (path.indexOf("?") === -1 ? "?" : "&") + "_cb=" + Date.now() + Math.random().toString(36).slice(2,6);
+  return fetch(url, {
+    method: method,
+    headers: {
+      "Authorization": "Bearer " + (token || (cfg && cfg.token) || ""),
+      "Accept": "application/vnd.github+json",
+      "Content-Type": "application/json"
+    },
+    body: body ? JSON.stringify(body) : undefined
+  }).then(function(r){
+    return r.text().then(function(t){
+      var j = null; try{ j = t ? JSON.parse(t) : null; }catch(e){}
+      return { status: r.status, json: j };
+    });
+  });
+}
+function setSyncDot(cls, txt){
+  var d = document.getElementById("syncDot"), t = document.getElementById("syncTxt");
+  if(d) d.className = "dot " + cls;
+  if(t) t.textContent = txt;
+}
+function syncHead(){
+  return gh("GET", "/repos/" + SYNC_OWNER + "/" + SYNC_REPO + "/git/ref/heads/" + SYNC_BRANCH).then(function(r){
+    if(r.status === 200 && r.json && r.json.object) return { commit: r.json.object.sha };
+    if(r.status === 404 || r.status === 409) return null; /* 404/409 均表示空仓库（还没有 main 分支） */
+    throw new Error("head:" + r.status);
+  });
+}
+function syncTree(commitSha){
+  return gh("GET", "/repos/" + SYNC_OWNER + "/" + SYNC_REPO + "/git/commits/" + commitSha).then(function(r){
+    if(r.status !== 200 || !r.json || !r.json.tree) throw new Error("commit:" + r.status);
+    return r.json.tree.sha;
+  });
+}
+function syncPush(force){
+  var cfg = syncCfgGet();
+  if(!cfg || !cfg.token){ setSyncDot("off", "云同步 · 未启用"); return Promise.resolve(false); }
+  if(syncBusy && !force) return Promise.resolve(false);
+  syncBusy = true; setSyncDot("busy", "同步中…");
+  var payload = { updated_at: Date.now(), data: collectSyncData() };
+  var dataB64 = u8b64(JSON.stringify(payload));
+  return syncHead().then(function(head){
+    /* 推送前检查：云端已被其他设备更新过时，不覆盖，转为拉取+冲突提示 */
+    var stPre = syncStGet();
+    if(head && stPre.lastHead && head.commit !== stPre.lastHead){
+      syncBusy = false;
+      setSyncDot("busy", "云同步 · 待处理");
+      return syncPull(false).then(function(){ return { skip: true }; });
+    }
+    if(!head){
+      /* 空仓库：用 Contents API 建首个提交（Git Data API 在空仓库上不可用） */
+      return gh("PUT", "/repos/" + SYNC_OWNER + "/" + SYNC_REPO + "/contents/data.json", { message: "sync", content: dataB64 })
+      .then(function(cr){
+        if(cr.status !== 201 && cr.status !== 200) throw new Error("init:" + cr.status);
+        var st = syncStGet();
+        if(cr.json && cr.json.commit && cr.json.commit.sha){ st.lastHead = cr.json.commit.sha; }
+        st.dirty = false; st.lastSyncedAt = payload.updated_at; syncStSet(st);
+      });
+    }
+    return gh("POST", "/repos/" + SYNC_OWNER + "/" + SYNC_REPO + "/git/blobs", { content: dataB64, encoding: "base64" })
+    .then(function(br){
+      if(br.status !== 201 || !br.json) throw new Error("blob:" + br.status);
+      var entry = { path: "data.json", mode: "100644", type: "blob", sha: br.json.sha };
+      return syncTree(head.commit).then(function(baseTree){
+        return gh("POST", "/repos/" + SYNC_OWNER + "/" + SYNC_REPO + "/git/trees", { base_tree: baseTree, tree: [entry] });
+      }).then(function(tr){
+        if(tr.status !== 201) throw new Error("tree:" + tr.status);
+        return gh("POST", "/repos/" + SYNC_OWNER + "/" + SYNC_REPO + "/git/commits", { message: "sync", tree: tr.json.sha, parents: [head.commit] });
+      }).then(function(cm){
+        if(cm.status !== 201) throw new Error("commit:" + cm.status);
+        return gh("PATCH", "/repos/" + SYNC_OWNER + "/" + SYNC_REPO + "/git/refs/heads/" + SYNC_BRANCH, { sha: cm.json.sha, force: false });
+      }).then(function(pr){
+        if(pr.status !== 200) throw new Error("ref:" + pr.status + (pr.json && pr.json.message ? " " + pr.json.message : ""));
+        return (pr.json && pr.json.object) ? pr.json.object.sha : null;
+      });
+    });
+  })
+  .then(function(res){
+    if(res && res.skip){ return false; }
+    var st = syncStGet(); st.dirty = false; st.lastSyncedAt = payload.updated_at;
+    if(res && typeof res === "string") st.lastHead = res;
+    syncStSet(st);
+    syncBusy = false; hideSyncBanner(); setSyncDot("ok", "云同步 · 已同步");
+    return true;
+  })
+  .catch(function(e){
+    var msg = e && e.message ? e.message : "";
+    /* 双设备同时推送导致的 ref 冲突：转成拉取+冲突提示，不丢任何一边 */
+    if(msg.indexOf("ref:422") === 0 || msg.indexOf("ref:409") === 0){
+      syncBusy = false;
+      setSyncDot("busy", "云同步 · 待处理");
+      return syncPull(false);
+    }
+    syncBusy = false; setSyncDot("err", "云同步 · 失败");
+    toast("云同步上传失败：" + (msg || "网络问题") + "，可稍后点「立即上传」重试");
+    return false;
+  });
+}
+function handleRemote(payload, auto){
+  var st = syncStGet();
+  var dirty = !!st.dirty;
+  var remoteAt = payload.updated_at || 0;
+  var synced = st.lastSyncedAt || 0;
+  if(remoteAt <= synced){
+    if(dirty){ syncPush(true); }
+    else setSyncDot("ok", "云同步 · 已同步");
+    return;
+  }
+  if(dirty && !(syncLocalPristine() && synced === 0)){
+    syncConflict = payload;
+    var b = document.getElementById("syncBanner");
+    b.innerHTML = '手机和电脑的数据都有改动，选一边保留：<button class="sync-pick" data-act="useRemote">用云端（' + fmtTs(remoteAt) + '）覆盖本机</button><button class="sync-pick ghost" data-act="useLocal">把本机数据推上云端</button>';
+    b.classList.remove("hidden");
+    setSyncDot("busy", "云同步 · 待处理");
+    return;
+  }
+  if(auto){
+    if(applySyncData(payload.data, remoteAt)){ refreshAll(); setSyncDot("ok", "云同步 · 已同步"); }
+    else setSyncDot("err", "云同步 · 失败");
+  } else {
+    confirmModal("下载云端数据", "将用云端数据（" + fmtTs(remoteAt) + "）覆盖本机。覆盖前会自动在本机存一份备份，可在云同步设置里恢复。", function(){
+      if(applySyncData(payload.data, remoteAt)){ refreshAll(); setSyncDot("ok", "云同步 · 已同步"); }
+    });
+  }
+}
+function syncLocalPristine(){
+  try{
+    var hasReal = false;
+    Object.keys(DATASETS).forEach(function(k){ (data[k] || []).forEach(function(it){ if(!isSample(it)) hasReal = true; }); });
+    /* todo/memo 的示例数据在「文本」字段带（示例）标记，与 isSample 的备注规则不同 */
+    (data.todo || []).forEach(function(it){ var t = it && it["文本"]; if(typeof t === "string" && t.indexOf("（示例）") === -1) hasReal = true; });
+    (data.memo || []).forEach(function(it){ var t = it && it["文本"]; if(typeof t === "string" && t.indexOf("（示例）") === -1) hasReal = true; });
+    var mn = loadObj("monthNote", {}) || {};
+    Object.keys(mn).forEach(function(k){ if(mn[k] && mn[k].text && mn[k].text.indexOf("（示例）") === -1) hasReal = true; });
+    return !hasReal;
+  }catch(e){ return false; }
+}
+function syncPull(auto){
+  var cfg = syncCfgGet();
+  if(!cfg || !cfg.token){ setSyncDot("off", "云同步 · 未启用"); return Promise.resolve(false); }
+  if(syncBusy && !auto) return Promise.resolve(false);
+  syncBusy = true;
+  return syncHead().then(function(head){
+    if(head){
+      var stH = syncStGet(); stH.lastHead = head.commit; syncStSet(stH);
+    }
+    if(!head){
+      syncBusy = false;
+      if(syncStGet().dirty){ return syncPush(true); }
+      setSyncDot("ok", "云同步 · 已连接");
+      return false;
+    }
+    return syncTree(head.commit).then(function(treeSha){
+      return gh("GET", "/repos/" + SYNC_OWNER + "/" + SYNC_REPO + "/git/trees/" + treeSha);
+    }).then(function(tr){
+      /* 404 = 空树（GitHub 对全空目录的已知怪癖），视作云端没有数据文件 */
+      if(tr.status !== 200 && tr.status !== 404) throw new Error("treeGet:" + tr.status);
+      var entry = null;
+      ((tr.json && tr.json.tree) || []).forEach(function(t){ if(t.path === "data.json") entry = t; });
+      if(!entry){
+        /* 分支存在但还没有数据文件，视作云端为空 */
+        syncBusy = false;
+        if(syncStGet().dirty){ return syncPush(true).then(function(){ return { skip: true }; }); }
+        setSyncDot("ok", "云同步 · 已连接");
+        return { skip: true };
+      }
+      return gh("GET", "/repos/" + SYNC_OWNER + "/" + SYNC_REPO + "/git/blobs/" + entry.sha);
+    }).then(function(bl){
+      if(bl && bl.skip) return true;
+      if(!bl || bl.status !== 200) throw new Error("blobGet:" + (bl ? bl.status : "null"));
+      var payload = JSON.parse(b64u8(bl.json.content));
+      syncBusy = false;
+      handleRemote(payload, auto);
+      return true;
+    });
+  }).catch(function(e){
+    syncBusy = false;
+    setSyncDot("err", "云同步 · 失败");
+    if(!auto) toast("云同步下载失败：" + (e && e.message ? e.message : "网络问题"));
+    return false;
+  });
+}
+function syncSchedulePush(){
+  var st = syncStGet();
+  if(!st.dirty){ st.dirty = true; syncStSet(st); }
+  var cfg = syncCfgGet();
+  if(!cfg || !cfg.token) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(function(){
+    if(!syncStGet().dirty) return;
+    syncPush(false);
+  }, 4000);
+}
+function hideSyncBanner(){
+  var b = document.getElementById("syncBanner");
+  if(b) b.classList.add("hidden");
+  syncConflict = null;
+}
+function syncBoot(){
+  var cfg = syncCfgGet();
+  if(cfg && cfg.token){ setSyncDot("busy", "同步中…"); syncPull(true); }
+  else setSyncDot("off", "云同步 · 未启用");
+}
 
 /* ---- 文件存储层（IndexedDB，培训文件专用；localStorage 太小放不下文件） ---- */
 var _idbP = null;
@@ -2291,6 +2584,106 @@ document.getElementById("fileModalDl").addEventListener("click", function(){
   if(_fileModalAtt) downloadAtt(_fileModalAtt);
 });
 
+/* ---- 云同步事件绑定 ---- */
+function renderSyncHint(){
+  var cfg = syncCfgGet(), st = syncStGet();
+  var h = document.getElementById("syncHint");
+  if(cfg && cfg.token){
+    h.innerHTML = "已启用云同步：本机改动约 4 秒后自动上传，打开页面时自动拉取云端最新数据。上次同步：" + (st.lastSyncedAt ? fmtTs(st.lastSyncedAt) : "尚未同步") + "。令牌只存在本机浏览器里，不会出现在页面代码中；附件大文件不参与同步（仍在本机 IndexedDB）。";
+  } else {
+    h.innerHTML = "未启用。粘贴一个只授权 edu-workbench-data 私有仓库的 GitHub 细粒度令牌即可。启用后手机和电脑的数据自动互通，覆盖前会自动备份一份本机数据（可恢复）。";
+  }
+}
+function openSyncModal(){
+  renderSyncHint();
+  document.getElementById("syncTokenInput").value = "";
+  var hasRb = false;
+  try{ hasRb = !!localStorage.getItem(PREFIX + "cloudRollback"); }catch(e){}
+  document.getElementById("syncRollback").style.display = hasRb ? "" : "none";
+  document.getElementById("syncModal").classList.remove("hidden");
+}
+document.getElementById("btnSync").addEventListener("click", openSyncModal);
+document.getElementById("syncClose").addEventListener("click", function(){
+  document.getElementById("syncModal").classList.add("hidden");
+});
+document.getElementById("syncModal").addEventListener("click", function(e){
+  if(e.target === this) this.classList.add("hidden");
+});
+document.getElementById("syncSaveToken").addEventListener("click", function(){
+  var t = document.getElementById("syncTokenInput").value.trim();
+  if(!t){ toast("先粘贴令牌再保存"); return; }
+  setSyncDot("busy", "校验中…");
+  fetch("https://api.github.com/repos/" + SYNC_OWNER + "/" + SYNC_REPO, {
+    headers: { "Authorization": "Bearer " + t, "Accept": "application/vnd.github+json" }
+  }).then(function(r){
+    return r.json().then(function(j){ return { status: r.status, j: j }; });
+  }).then(function(r){
+    if(r.status === 200){
+      syncCfgSet({ token: t });
+      document.getElementById("syncTokenInput").value = "";
+      renderSyncHint();
+      toast("令牌已保存，云同步已启用");
+      var st = syncStGet(); st.dirty = true; syncStSet(st);
+      syncPull(true);
+    } else if(r.status === 401){
+      setSyncDot("err", "云同步 · 令牌无效");
+      toast("令牌无效或已过期，请重新生成一个");
+    } else if(r.status === 404){
+      setSyncDot("err", "云同步 · 令牌无效");
+      toast("这个令牌没有 edu-workbench-data 仓库权限，请确认生成时勾选了该仓库且 Contents 为 Read and write");
+    } else {
+      setSyncDot("err", "云同步 · 校验失败");
+      toast("校验失败（" + r.status + "），请稍后再试");
+    }
+  }).catch(function(){
+    setSyncDot("err", "云同步 · 校验失败");
+    toast("网络异常，令牌校验失败");
+  });
+});
+document.getElementById("syncPushNow").addEventListener("click", function(){
+  hideSyncBanner(); syncPush(true);
+});
+document.getElementById("syncPullNow").addEventListener("click", function(){
+  syncPull(false);
+});
+document.getElementById("syncClearToken").addEventListener("click", function(){
+  confirmModal("清除令牌", "清除后本设备停止云同步（其他设备不受影响），本机数据保留不变。", function(){
+    syncCfgSet(null);
+    renderSyncHint();
+    setSyncDot("off", "云同步 · 未启用");
+    toast("已清除令牌");
+  });
+});
+document.getElementById("syncRollback").addEventListener("click", function(){
+  var rb = null;
+  try{ rb = JSON.parse(localStorage.getItem(PREFIX + "cloudRollback")); }catch(e){}
+  if(!rb || !rb.data){ toast("没有可恢复的备份"); return; }
+  confirmModal("恢复覆盖前备份", "将恢复到上次云端覆盖之前本机的数据（备份于 " + fmtTs(rb.at) + "），恢复后会自动上传云端。", function(){
+    Object.keys(rb.data).forEach(function(k){
+      try{ localStorage.setItem(k, JSON.stringify(rb.data[k])); }catch(e){}
+    });
+    Object.keys(DATASETS).forEach(function(k){ data[k] = loadDS(k); });
+    data.todo = loadDS("todo");
+    data.memo = loadDS("memo");
+    var st = syncStGet(); st.dirty = true; syncStSet(st);
+    refreshAll();
+    syncSchedulePush();
+    toast("已恢复本机备份");
+  });
+});
+document.getElementById("syncBanner").addEventListener("click", function(e){
+  var btn = e.target.closest ? e.target.closest(".sync-pick") : null;
+  if(!btn) return;
+  var act = btn.getAttribute("data-act");
+  if(act === "useRemote" && syncConflict){
+    if(applySyncData(syncConflict.data, syncConflict.updated_at)){ refreshAll(); setSyncDot("ok", "云同步 · 已同步"); }
+    hideSyncBanner();
+  } else if(act === "useLocal"){
+    hideSyncBanner();
+    syncPush(true);
+  }
+});
+
 /* ================= 初始化（固定顺序） ================= */
 function migrateLegacyNotes(){
   try{
@@ -2323,6 +2716,7 @@ function init(){
   }
   buildNav();
   refreshAll();
+  syncBoot();
 }
 init();
 </script>
