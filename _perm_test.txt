@@ -1,1 +1,1 @@
-icon-write-test
+user-token-write-test-v2
