@@ -282,6 +282,23 @@ a{color:var(--primary-deep)}
 #toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:rgba(70,61,86,.94);color:#fdf9ee;border-radius:14px;padding:10px 18px;font-size:14px;z-index:70;opacity:0;pointer-events:none;transition:opacity .25s}
 #toast.show{opacity:1}
 
+/* ---------- 全部模块抽屉（移动端） ---------- */
+.allmod-mask{position:fixed;inset:0;background:rgba(58,48,80,.42);z-index:65;display:flex;align-items:flex-end;justify-content:center}
+.allmod-panel{width:100%;max-width:540px;max-height:86vh;overflow-y:auto;-webkit-overflow-scrolling:touch;background:var(--cream);border-radius:26px 26px 0 0;padding:20px 18px calc(24px + env(safe-area-inset-bottom));box-shadow:0 -12px 40px rgba(0,0,0,.24)}
+.allmod-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.allmod-head h3{font-size:17px;color:var(--primary-deep);letter-spacing:1px}
+.allmod-close{border:1px solid var(--panel-line);background:#fff;border-radius:999px;min-height:44px;padding:8px 18px;font-size:14px;color:var(--primary-deep)}
+.allmod-group{margin-bottom:16px}
+.allmod-label{font-size:12px;color:var(--muted);margin:0 0 8px 4px;letter-spacing:1px}
+.allmod-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.allmod-item{display:flex;align-items:center;gap:8px;min-height:48px;padding:8px 10px;border:1px solid var(--panel-line);background:#fff;border-radius:14px;font-size:13px;color:var(--text);text-align:left;line-height:1.3}
+.allmod-item svg{width:18px;height:18px;flex:none;color:#9d8cb8}
+.allmod-item.on{background:var(--primary-deep);color:#fdf9ee;border-color:var(--primary-deep)}
+.allmod-item.on svg{filter:brightness(0) invert(1)}
+.allmod-tools{border-top:1px solid var(--panel-line);padding-top:14px;margin-top:4px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.allmod-tool{min-height:48px;border:1px solid var(--panel-line);background:#fff;border-radius:14px;font-size:12px;color:var(--primary-deep);padding:6px 4px}
+.allmod-tip{font-size:12px;color:var(--muted);margin-top:12px;line-height:1.6}
+
 /* ---------- 底部 Tab（移动端） ---------- */
 .bottombar{display:none}
 
@@ -296,13 +313,12 @@ a{color:var(--primary-deep)}
   .bottombar{
     display:flex;position:fixed;left:10px;right:10px;bottom:10px;z-index:50;
     background-color:var(--cream);
-    background-image:inherit;
     border:1px solid var(--panel-line);border-radius:24px;
     padding:6px 6px calc(6px + env(safe-area-inset-bottom));
     box-shadow:0 -6px 24px rgba(60,50,80,.22);
   }
-  .bottombar button{flex:1;border:none;background:transparent;display:flex;flex-direction:column;align-items:center;gap:2px;min-height:50px;padding:6px 2px;font-size:11px;color:var(--muted);border-radius:16px}
-  .bottombar button svg{width:22px;height:22px}
+  .bottombar button{flex:1;border:none;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:50px;padding:6px 0;font-size:10px;letter-spacing:-.3px;white-space:nowrap;color:var(--primary-deep);border-radius:16px}
+  .bottombar button svg{width:20px;height:20px;flex:none}
   .bottombar button.active{color:#fdf9ee;background:var(--primary-deep)}
   #toast{bottom:110px}
   .item-acts .icon-btn{min-width:44px;min-height:44px}
@@ -411,7 +427,27 @@ a{color:var(--primary-deep)}
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8.5" r="3.5"/><path d="M3.5 20c.5-3.6 2.8-5.5 5.5-5.5s5 1.9 5.5 5.5"/><path d="M16 5.5a3.2 3.2 0 0 1 0 6.2"/><path d="M17.5 14.6c1.7.7 2.7 2.4 3 5.4"/></svg>
     客户管理
   </button>
+  <button data-view="__all__">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></svg>
+    全部
+  </button>
 </nav>
+
+<div class="allmod-mask hidden" id="allModMask">
+  <div class="allmod-panel">
+    <div class="allmod-head">
+      <h3>全部模块</h3>
+      <button class="allmod-close" id="allModClose">关闭</button>
+    </div>
+    <div id="allModBody"></div>
+    <div class="allmod-tools">
+      <button class="allmod-tool" data-tool="export">导出 JSON 备份</button>
+      <button class="allmod-tool" data-tool="import">导入恢复</button>
+      <button class="allmod-tool" data-tool="clear">清空示例数据</button>
+    </div>
+    <div class="allmod-tip">进入模块后，页面上方的胶囊按钮可切换该组下的其他子页面。</div>
+  </div>
+</div>
 
 <div class="modal-mask hidden" id="modalMask">
   <div class="modal-box">
@@ -1426,6 +1462,25 @@ function buildNav(){
       goView(el.getAttribute("data-view"));
     });
   });
+}
+
+/* ---- 移动端「全部模块」抽屉 ---- */
+function openAllModules(){
+  var html = "";
+  NAV.forEach(function(g){
+    html += '<div class="allmod-group"><div class="allmod-label">' + esc(g.label) + '</div><div class="allmod-grid">';
+    g.items.forEach(function(it){
+      var on = (state.view === it.v) ||
+        (it.group && GROUPS[it.group] && GROUPS[it.group].some(function(s){ return s.v === state.view; }));
+      html += '<button class="allmod-item' + (on ? ' on' : '') + '" data-mod="' + it.v + '">' + it.icon + esc(it.label) + '</button>';
+    });
+    html += '</div></div>';
+  });
+  document.getElementById("allModBody").innerHTML = html;
+  document.getElementById("allModMask").classList.remove("hidden");
+}
+function closeAllModules(){
+  document.getElementById("allModMask").classList.add("hidden");
 }
 function renderNavActive(){
   var cur = state.view;
@@ -2473,10 +2528,31 @@ document.getElementById("btnToggleForm").addEventListener("click", function(){
 Array.prototype.forEach.call(document.querySelectorAll("#bottomBar button"), function(el){
   el.addEventListener("click", function(){
     var v = el.getAttribute("data-view");
+    if(v === "__all__"){ openAllModules(); return; }
     var grp = groupOf(v);
     if(grp && !GROUPS[grp].some(function(s){ return s.v === state.view; })) v = GROUPS[grp][0].v;
     goView(v);
   });
+});
+
+/* 「全部模块」抽屉交互 */
+document.getElementById("allModClose").addEventListener("click", closeAllModules);
+document.getElementById("allModMask").addEventListener("click", function(e){
+  if(e.target === this){ closeAllModules(); return; }
+  var mod = e.target.closest("[data-mod]");
+  if(mod){
+    closeAllModules();
+    goView(mod.getAttribute("data-mod"));
+    return;
+  }
+  var tool = e.target.closest("[data-tool]");
+  if(tool){
+    var t = tool.getAttribute("data-tool");
+    closeAllModules();
+    if(t === "export") document.getElementById("btnExport").click();
+    else if(t === "import") document.getElementById("btnImport").click();
+    else if(t === "clear") document.getElementById("btnClearSample").click();
+  }
 });
 
 /* 工具按钮 */
