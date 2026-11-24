@@ -1,0 +1,13 @@
+{
+  "name": "小醋包的工作台",
+  "short_name": "小醋包工作台",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#8b79a8",
+  "theme_color": "#7c6a99",
+  "icons": [
+    { "src": "icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
